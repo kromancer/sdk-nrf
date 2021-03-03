@@ -1,0 +1,12 @@
+/ {
+      nrf_radio_fem: fem {
+        compatible = "generic-fem-two-ctrl-pins";
+        status = "okay";
+        ctx-gpios = <&gpio0 3 GPIO_ACTIVE_HIGH>;
+        crx-gpios = <&gpio0 4 GPIO_ACTIVE_HIGH>;
+        ctx-settle-time-us = <23>;
+        crx-settle-time-us = <5>;
+        tx-gain-db = <22>;
+        rx-gain-db = <11>;
+    };
+};

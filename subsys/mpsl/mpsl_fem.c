@@ -295,6 +295,9 @@ static int fem_nrf21540_gpio_configure(void)
 #if IS_ENABLED(CONFIG_MPSL_FEM_SIMPLE_GPIO)
 static int fem_simple_gpio_configure(void)
 {
+	nrfx_gpiote_init(0);
+	(void)inactive_pin_configure;
+
 #if !DT_NODE_EXISTS(DT_NODELABEL(nrf_radio_fem))
 #error Node with label 'nrf_radio_fem' not found in the devicetree.
 #endif
