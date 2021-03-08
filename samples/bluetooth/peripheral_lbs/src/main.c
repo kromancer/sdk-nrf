@@ -21,7 +21,11 @@
 #include <bluetooth/gatt.h>
 #include <settings/settings.h>
 
+#include <irq.h>
+#include <hal/nrf_radio.h>
+#include <hal/nrf_egu.h>
 #include <nrfx_gpiote.h>
+#include <nrfx_ppi.h>
 #include <devicetree.h>
 #include <assert.h>
 
@@ -32,7 +36,27 @@
 #define GPIO_FEM_RX 29 // Connected to FEM RX PIN
 #define GPIO_FEM_NO_PINS 2
 
+#define EGU_TASK_RADIO_READY 0
+
+#define NRF_802154_SWI_PRIORITY 2
+
+#define NRF_802154_EGU_INSTANCE_NO 0
+
+#define NRF_802154_EGU_INSTANCE NRFX_CONCAT_2(NRF_EGU, NRF_802154_EGU_INSTANCE_NO)
+
+#define NRF_802154_EGU_IRQ_HANDLER                                      \
+    NRFX_CONCAT_3(NRFX_CONCAT_3(SWI, NRF_802154_EGU_INSTANCE_NO, _EGU), \
+                  NRF_802154_EGU_INSTANCE_NO,                           \
+                  _IRQHandler)
+
+#define NRF_802154_EGU_IRQN                                             \
+    NRFX_CONCAT_3(NRFX_CONCAT_3(SWI, NRF_802154_EGU_INSTANCE_NO, _EGU), \
+                  NRF_802154_EGU_INSTANCE_NO,                           \
+                  _IRQn)
+
 static volatile uint32_t event_count = 0;
+static volatile uint32_t swi_count = 0;
+
 
 static const nrfx_gpiote_pin_t mpsl_fem_pin_no[GPIO_FEM_NO_PINS] = {
 	GPIO_FEM_TX, GPIO_FEM_RX
@@ -41,12 +65,22 @@ static const nrfx_gpiote_pin_t mpsl_fem_pin_no[GPIO_FEM_NO_PINS] = {
 static void monitor_gpiote_irq_handler(nrfx_gpiote_pin_t pin,
 				       nrf_gpiote_polarity_t action)
 {
+	(void)pin;
+	(void)action;
 	event_count++;
+}
+
+static void swi_irq_handler(const void *param)
+{
+	(void)param;
+	swi_count++;
+	nrf_egu_event_clear(NRF_802154_EGU_INSTANCE, NRF_EGU_EVENT_TRIGGERED0);
 }
 
 /* Initialize and start timer and interupt handling */
 static void monitor_init(void)
 {
+	/* GPIOTE */
 	nrfx_err_t err = nrfx_gpiote_init(0);
 	assert(err == NRFX_ERROR_INVALID_STATE);
 
@@ -59,6 +93,24 @@ static void monitor_init(void)
 					  monitor_gpiote_irq_handler);
 		assert(err == NRFX_SUCCESS);
 	}
+
+	nrf_ppi_channel_t channel;
+	nrfx_err_t res = nrfx_ppi_channel_alloc(&channel);
+	assert(res == NRFX_SUCCESS);
+
+	/* SWI on RADIO_EVENT_READY */
+	err = nrfx_ppi_channel_assign(channel,
+				      nrf_radio_event_address_get(NRF_RADIO, NRF_RADIO_EVENT_READY),
+				      nrf_egu_task_address_get(NRF_802154_EGU_INSTANCE, EGU_TASK_RADIO_READY));
+	assert(res == NRFX_SUCCESS);
+
+
+
+	err = nrfx_ppi_channel_enable(channel);
+	assert(res == NRFX_SUCCESS);
+
+	irq_connect_dynamic(NRF_802154_EGU_IRQN, NRF_802154_SWI_PRIORITY, swi_irq_handler, NULL, 0);
+	irq_enable(NRF_802154_EGU_IRQN);
 }
 
 static void monitor_start(void)
@@ -70,6 +122,8 @@ static void monitor_start(void)
 	for (int i = 0; i < GPIO_FEM_NO_PINS; i++) {
 		nrfx_gpiote_in_event_enable(mpsl_fem_pin_no[i], true);
 	}
+
+	nrf_egu_int_enable(NRF_802154_EGU_INSTANCE, 1 << EGU_TASK_RADIO_READY);
 }
 
 static const struct bt_data ad[] = {
@@ -216,5 +270,6 @@ void main(void)
 	for (;;) {
 		k_sleep(K_MSEC(2000));
 		printk("event_count: %d\n", event_count);
+		printk("swi_count: %d\n", swi_count);
 	}
 }
