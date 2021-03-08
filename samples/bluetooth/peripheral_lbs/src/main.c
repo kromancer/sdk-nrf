@@ -21,7 +21,11 @@
 #include <bluetooth/gatt.h>
 #include <settings/settings.h>
 
+#include <irq.h>
+#include <hal/nrf_radio.h>
+#include <hal/nrf_egu.h>
 #include <nrfx_gpiote.h>
+#include <nrfx_ppi.h>
 #include <devicetree.h>
 #include <assert.h>
 
@@ -31,6 +35,24 @@
 #define GPIO_FEM_TX 28 // Connected to FEM TX PIN
 #define GPIO_FEM_RX 29 // Connected to FEM RX PIN
 #define GPIO_FEM_NO_PINS 2
+
+#define EGU_TASK_RADIO_READY 0
+
+#define NRF_802154_SWI_PRIORITY 2
+
+#define NRF_802154_EGU_INSTANCE_NO 0
+
+#define NRF_802154_EGU_INSTANCE NRFX_CONCAT_2(NRF_EGU, NRF_802154_EGU_INSTANCE_NO)
+
+#define NRF_802154_EGU_IRQ_HANDLER                                      \
+    NRFX_CONCAT_3(NRFX_CONCAT_3(SWI, NRF_802154_EGU_INSTANCE_NO, _EGU), \
+                  NRF_802154_EGU_INSTANCE_NO,                           \
+                  _IRQHandler)
+
+#define NRF_802154_EGU_IRQN                                             \
+    NRFX_CONCAT_3(NRFX_CONCAT_3(SWI, NRF_802154_EGU_INSTANCE_NO, _EGU), \
+                  NRF_802154_EGU_INSTANCE_NO,                           \
+                  _IRQn)
 
 static volatile uint32_t event_count = 0;
 
@@ -176,6 +198,15 @@ static struct bt_conn_auth_cb conn_auth_callbacks = {
 static struct bt_conn_auth_cb conn_auth_callbacks;
 #endif
 
+static volatile uint32_t swi_count = 0;
+
+static void swi_irq_handler(const void *param)
+{
+	(void)param;
+	swi_count++;
+	nrf_egu_event_clear(NRF_802154_EGU_INSTANCE, NRF_EGU_EVENT_TRIGGERED0);
+}
+
 void main(void)
 {
 	IRQ_CONNECT(DT_IRQN(DT_NODELABEL(gpiote)),
@@ -211,10 +242,31 @@ void main(void)
 
 	monitor_start();
 
+
+
+
+	nrf_ppi_channel_t channel;
+	nrfx_err_t res = nrfx_ppi_channel_alloc(&channel);
+	assert(res == NRFX_SUCCESS);
+
+	err = nrfx_ppi_channel_assign(channel,
+				      nrf_radio_event_address_get(NRF_RADIO, NRF_RADIO_EVENT_READY),
+				      nrf_egu_task_address_get(NRF_802154_EGU_INSTANCE, EGU_TASK_RADIO_READY));
+	assert(res == NRFX_SUCCESS);
+
+	nrf_egu_int_enable(NRF_802154_EGU_INSTANCE, 1 << EGU_TASK_RADIO_READY);
+
+	err = nrfx_ppi_channel_enable(channel);
+	assert(res == NRFX_SUCCESS);
+
+	irq_connect_dynamic(NRF_802154_EGU_IRQN, NRF_802154_SWI_PRIORITY, swi_irq_handler, NULL, 0);
+	irq_enable(NRF_802154_EGU_IRQN);
+
 	printk("Advertising successfully started\n");
 
 	for (;;) {
 		k_sleep(K_MSEC(2000));
 		printk("event_count: %d\n", event_count);
+		printk("swi_count: %d\n", swi_count);
 	}
 }
