@@ -26,6 +26,8 @@
 
 #include <dk_buttons_and_leds.h>
 
+#include <devicetree.h>
+
 #define DEVICE_NAME             CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN         (sizeof(DEVICE_NAME) - 1)
 
@@ -237,6 +239,15 @@ void main(void)
 	}
 
 	printk("Advertising successfully started\n");
+
+	/* The simple way */
+	printk("RAM Size is: %d\n", DT_REG_SIZE(DT_NODELABEL(sram0)));
+	printk("Flash Size is: %d\n", DT_REG_SIZE(DT_NODELABEL(flash0)));
+
+	/* Remember: The devicetree API is nothing but simple macros */
+	printk("Flash Size is: %d\n", DT_REG_SIZE(DT_N_NODELABEL_flash0));
+	printk("Flash Size is: %d\n", DT_REG_SIZE(DT_N_S_soc_S_flash_controller_4001e000_S_flash_0));
+	printk("Flash Size is: %d\n", DT_N_S_soc_S_flash_controller_4001e000_S_flash_0_REG_IDX_0_VAL_SIZE);
 
 	for (;;) {
 		dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
