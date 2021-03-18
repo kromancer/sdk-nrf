@@ -27,6 +27,8 @@
 #include <dk_buttons_and_leds.h>
 
 #include <devicetree.h>
+#include <device.h>
+#include <drivers/entropy.h>
 
 #define DEVICE_NAME             CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN         (sizeof(DEVICE_NAME) - 1)
@@ -249,8 +251,34 @@ void main(void)
 	printk("Flash Size is: %d\n", DT_REG_SIZE(DT_N_S_soc_S_flash_controller_4001e000_S_flash_0));
 	printk("Flash Size is: %d\n", DT_N_S_soc_S_flash_controller_4001e000_S_flash_0_REG_IDX_0_VAL_SIZE);
 
+	const struct device *dev;
+	dev = device_get_binding(DT_PROP(DT_NODELABEL(rng),
+					 label));
+	if (!dev) {
+		printk("No rng device\n");
+	}
+
+	uint8_t buffer[10] = {0};
+	const uint8_t buffer_len = sizeof(buffer);
+
 	for (;;) {
 		dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
+
+		int err = entropy_get_entropy(dev, buffer, buffer_len - 1);
+		if (err) {
+			printk("entropy_get_entropy failed: %d\n", err);
+			break;
+		}
+
+		if (buffer[buffer_len-1] != 0U) {
+			printk("entropy_get_entropy buffer overflow\n");
+		}
+
+		for (int i=0; i < buffer_len - 1; i++) {
+			printk("  0x%02x", buffer[i]);
+		}
+		printk("\n");
+
 		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
 	}
 }
