@@ -26,6 +26,10 @@
 
 #include <dk_buttons_and_leds.h>
 
+#include <nrf.h>
+#include <irq.h>
+#include <mpsl_radio_notification.h>
+
 #define DEVICE_NAME             CONFIG_BT_DEVICE_NAME
 #define DEVICE_NAME_LEN         (sizeof(DEVICE_NAME) - 1)
 
@@ -187,6 +191,12 @@ static int init_button(void)
 	return err;
 }
 
+static volatile uint64_t radio_notif_count = 0;
+static void receive_radio_notif(void *arg)
+{
+	radio_notif_count++;
+}
+
 void main(void)
 {
 	int blink_status = 0;
@@ -209,6 +219,19 @@ void main(void)
 	bt_conn_cb_register(&conn_callbacks);
 	if (IS_ENABLED(CONFIG_BT_LBS_SECURITY_ENABLED)) {
 		bt_conn_auth_cb_register(&conn_auth_callbacks);
+	}
+
+	const uint8_t priority = 2;
+	IRQ_CONNECT(SWI1_IRQn, priority, receive_radio_notif, NULL, 0);
+	irq_enable(SWI1_IRQn);
+
+	/* Good practice to do this before bt_enable() */
+	err = mpsl_radio_notification_cfg_set(MPSL_RADIO_NOTIFICATION_TYPE_INT_ON_ACTIVE,
+					      MPSL_RADIO_NOTIFICATION_DISTANCE_5500US,
+					      SWI1_IRQn);
+	if (err) {
+		printk("mpsl_radio_notification_cfg_set failed with (err %d)\n", err);
+		return;
 	}
 
 	err = bt_enable(NULL);
@@ -240,6 +263,7 @@ void main(void)
 
 	for (;;) {
 		dk_set_led(RUN_STATUS_LED, (++blink_status) % 2);
+		printk("Radio notification count: %llu\n", radio_notif_count);
 		k_sleep(K_MSEC(RUN_LED_BLINK_INTERVAL));
 	}
 }
